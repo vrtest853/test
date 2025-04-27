@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>直接VRセッション開始テスト</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://cdn.jsdelivr.net/npm/three@0.150.1/build/three.min.js"></script>
+  <style>
+    body { margin: 0; overflow: hidden; background: black; }
+    #startVR {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      padding: 10px 20px;
+      font-size: 1.2em;
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      z-index: 10;
+    }
+  </style>
+</head>
+<body>
+
+<button id="startVR">VRモード開始</button>
+
+<script>
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  document.body.appendChild(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x222222);
+  const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000);
+  camera.position.z = 3;
+
+  const light = new THREE.HemisphereLight(0xffffff, 0x444444);
+  light.position.set(0, 1, 0);
+  scene.add(light);
+
+  const geometry = new THREE.BoxGeometry(1, 1, 1);
+  const material = new THREE.MeshNormalMaterial();
+  const cube = new THREE.Mesh(geometry, material);
+  scene.add(cube);
+
+  function animate() {
+    renderer.setAnimationLoop(() => {
+      cube.rotation.x += 0.01;
+      cube.rotation.y += 0.01;
+      renderer.render(scene, camera);
+    });
+  }
+
+  // VR開始ボタンイベント
+  document.getElementById('startVR').addEventListener('click', async () => {
+    if (navigator.xr) {
+      try {
+        const session = await navigator.xr.requestSession('immersive-vr');
+        renderer.xr.setSession(session);
+        animate();
+      } catch (e) {
+        alert('VRセッション開始に失敗しました: ' + e.message);
+      }
+    } else {
+      alert('WebXR非対応です');
+    }
+  });
+
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+</script>
+
+</body>
+</html>

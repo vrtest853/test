@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>アラームアプリ</title>
+  <link rel="icon" href="alarm-icon.png">
+  <style>
+    body {
+      font-family: 'Helvetica Neue', Arial, sans-serif;
+      background: linear-gradient(135deg, #ece9e6, #ffffff);
+      text-align: center;
+      padding: 50px;
+    }
+    h1 {
+      font-size: 2em;
+      color: #333;
+      margin-bottom: 20px;
+    }
+    input[type="time"], button {
+      font-size: 1.2em;
+      padding: 10px;
+      margin: 10px;
+      border-radius: 5px;
+      border: 1px solid #ccc;
+      width: 200px;
+    }
+    button {
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #45a049;
+    }
+    ul {
+      list-style: none;
+      padding: 0;
+      margin-top: 30px;
+    }
+    li {
+      font-size: 1.1em;
+      margin: 5px 0;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>アラームをセット</h1>
+
+  <input type="time" id="alarmTime">
+  <button onclick="setAlarm()">アラーム追加</button>
+
+  <h2>セット中のアラーム</h2>
+  <ul id="alarmList"></ul>
+
+  <audio id="alarmSound" src="https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg" preload="auto"></audio>
+
+  <script>
+    let alarms = [];
+
+    function setAlarm() {
+      const input = document.getElementById('alarmTime').value;
+      if (!input) {
+        alert('時間を設定してください！');
+        return;
+      }
+
+      const now = new Date();
+      const [hours, minutes] = input.split(':').map(Number);
+      const alarm = new Date();
+
+      alarm.setHours(hours);
+      alarm.setMinutes(minutes);
+      alarm.setSeconds(0);
+
+      if (alarm <= now) {
+        alarm.setDate(alarm.getDate() + 1);
+      }
+
+      const timeToAlarm = alarm - now;
+
+      const timeout = setTimeout(() => {
+        document.getElementById('alarmSound').play();
+        alert(`アラーム：${input}`);
+      }, timeToAlarm);
+
+      alarms.push({ time: input, timeoutId: timeout });
+      updateAlarmList();
+    }
+
+    function updateAlarmList() {
+      const list = document.getElementById('alarmList');
+      list.innerHTML = '';
+      alarms.forEach(alarm => {
+        const li = document.createElement('li');
+        li.textContent = alarm.time;
+        list.appendChild(li);
+      });
+    }
+  </script>
+
+</body>
+</html>

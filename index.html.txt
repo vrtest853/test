@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>タップでジャンプ移動版</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://cdn.jsdelivr.net/npm/three@0.150.1/build/three.min.js"></script>
+  <style>
+    body { margin: 0; overflow: hidden; background: black; }
+    #startVR {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      padding: 10px 20px;
+      font-size: 1.2em;
+      background-color: #4CAF50;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      z-index: 10;
+    }
+  </style>
+</head>
+<body>
+
+<button id="startVR">VRモード開始</button>
+
+<script>
+let scene, camera, renderer;
+let jumpDistance = 1.0; // 1メートル前進
+let vrSession = null;
+
+init();
+normalAnimate();
+
+function init() {
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x222222);
+
+  camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000);
+  camera.position.set(0, 1.6, 5);
+
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.xr.enabled = true;
+  document.body.appendChild(renderer.domElement);
+
+  const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+  scene.add(ambientLight);
+
+  const gridHelper = new THREE.GridHelper(200, 200);
+  scene.add(gridHelper);
+
+  // ここから追加！！
+  const geometry = new THREE.BoxGeometry(1, 1, 1);
+  const material = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
+  const cube = new THREE.Mesh(geometry, material);
+  cube.position.set(0, 1.6, -3); // カメラの少し前に配置
+  scene.add(cube);
+  // ここまで追加！！
+
+  document.body.addEventListener('click', jumpForward);
+}
+
+function normalAnimate() {
+  renderer.render(scene, camera);
+  requestAnimationFrame(normalAnimate);
+}
+
+function vrAnimate() {
+  renderer.render(scene, camera);
+}
+
+function jumpForward() {
+  if (!renderer.xr.isPresenting) {
+    return; // VRモードじゃないときは無視
+  }
+  const dir = new THREE.Vector3();
+  camera.getWorldDirection(dir);
+  dir.y = 0; // 水平方向だけ
+  dir.normalize();
+  camera.position.addScaledVector(dir, jumpDistance);
+
+  console.log("ジャンプ！");
+}
+
+document.getElementById('startVR').addEventListener('click', async () => {
+  if (navigator.xr) {
+    try {
+      vrSession = await navigator.xr.requestSession('immersive-vr', {
+        requiredFeatures: ['local-floor']
+      });
+      renderer.xr.setReferenceSpaceType('local-floor');
+      renderer.xr.setSession(vrSession);
+      renderer.setAnimationLoop(vrAnimate);
+    } catch (e) {
+      alert('VRセッション開始に失敗しました: ' + e.message);
+    }
+  } else {
+    alert('WebXR非対応です');
+  }
+});
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+</script>
+
+</body>
+</html>

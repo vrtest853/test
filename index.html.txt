@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>完全版 VR対応テスト</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://cdn.jsdelivr.net/npm/three@0.150.1/build/three.min.js"></script>
+  <style>
+    body { margin: 0; overflow: hidden; background: black; }
+    #startVR {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      padding: 10px 20px;
+      font-size: 1.2em;
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      z-index: 10;
+    }
+  </style>
+</head>
+<body>
+
+<button id="startVR">VRモード開始</button>
+
+<script>
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.xr.enabled = true; // ← ここも大事（VRモード有効化）
+  document.body.appendChild(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x222222);
+  const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000);
+  camera.position.z = 3;
+
+  const light = new THREE.HemisphereLight(0xffffff, 0x444444);
+  light.position.set(0, 1, 0);
+  scene.add(light);
+
+  const geometry = new THREE.BoxGeometry(1, 1, 1);
+  const material = new THREE.MeshNormalMaterial();
+  const cube = new THREE.Mesh(geometry, material);
+  scene.add(cube);
+
+  let vrSession = null;
+
+  // 通常ブラウザ用アニメーションループ
+  function normalAnimate() {
+    cube.rotation.x += 0.01;
+    cube.rotation.y += 0.01;
+    renderer.render(scene, camera);
+    requestAnimationFrame(normalAnimate);
+  }
+
+  // VRモード用アニメーションループ
+  function vrAnimate() {
+    cube.rotation.x += 0.01;
+    cube.rotation.y += 0.01;
+    renderer.render(scene, camera);
+  }
+
+  normalAnimate(); // 通常時はこっち
+
+  document.getElementById('startVR').addEventListener('click', async () => {
+    if (navigator.xr) {
+      if (!vrSession) {
+        try {
+          // ここで "local" reference space をちゃんと使う！！
+          vrSession = await navigator.xr.requestSession('immersive-vr', {
+            requiredFeatures: ['local']
+          });
+          renderer.xr.setReferenceSpaceType('local'); // ← 必須！
+          renderer.xr.setSession(vrSession);
+          renderer.setAnimationLoop(vrAnimate);
+
+          vrSession.addEventListener('end', () => {
+            vrSession = null;
+            renderer.setAnimationLoop(null);
+            normalAnimate();
+          });
+        } catch (e) {
+          alert('VRセッション開始に失敗しました: ' + e.message);
+        }
+      } else {
+        alert('すでにVRセッション中です！');
+      }
+    } else {
+      alert('WebXR非対応です');
+    }
+  });
+
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+</script>
+
+</body>
+</html>

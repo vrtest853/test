@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>Quest 3 WebXR Starter</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+
+  <!-- Three.js (module build) -->
+  <script type="module">
+    /* ===== import ===== */
+    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.176.0/build/three.module.js';
+    import { VRButton } from 'https://cdn.jsdelivr.net/npm/three@0.176.0/examples/jsm/webxr/VRButton.js';
+    import { XRControllerModelFactory } from 'https://cdn.jsdelivr.net/npm/three@0.176.0/examples/jsm/webxr/XRControllerModelFactory.js';
+
+    /* ===== renderer ===== */
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+    renderer.setPixelRatio( window.devicePixelRatio );
+    renderer.setSize( window.innerWidth, window.innerHeight );
+    renderer.xr.enabled = true;
+    document.body.appendChild( renderer.domElement );
+    document.body.appendChild( VRButton.createButton( renderer ) );
+
+    /* ===== scene / camera ===== */
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color( 0x202024 );
+
+    const camera = new THREE.PerspectiveCamera( 70, window.innerWidth / window.innerHeight, 0.01, 100 );
+    camera.position.set( 0, 1.6, 3 );           // 1.6 m = 立った時の目線
+
+    /* ===== lights ===== */
+    const light = new THREE.HemisphereLight( 0xffffff, 0x444444, 1.0 );
+    scene.add( light );
+
+    /* ===== floor grid ===== */
+    const floorGeo  = new THREE.PlaneGeometry( 50, 50 ).rotateX( - Math.PI / 2 );
+    const floorMat  = new THREE.MeshStandardMaterial({ color: 0x555555, metalness: 0, roughness: 1 });
+    const floorMesh = new THREE.Mesh( floorGeo, floorMat );
+    scene.add( floorMesh );
+
+    const grid = new THREE.GridHelper( 50, 50, 0x888888, 0x444444 );
+    scene.add( grid );
+
+    /* ===== a few test objects ===== */
+    const boxGeo = new THREE.BoxGeometry( 0.6, 0.6, 0.6 );
+    const phong  = new THREE.MeshStandardMaterial({ color: 0x3399ff });
+    for ( let i = 0; i < 30; i ++ ) {
+      const box = new THREE.Mesh( boxGeo, phong.clone() );
+      box.position.set(
+        THREE.MathUtils.randFloatSpread( 20 ),
+        0.3,
+        THREE.MathUtils.randFloatSpread( 20 )
+      );
+      scene.add( box );
+    }
+
+    /* ===== user rig (camera + dummy) ===== */
+    const user = new THREE.Group();
+    user.add( camera );
+    scene.add( user );
+
+    /* ===== controllers ===== */
+    const controllerGrip1 = renderer.xr.getControllerGrip( 0 );
+    const controllerGrip2 = renderer.xr.getControllerGrip( 1 );
+    const controllerModelFactory = new XRControllerModelFactory();
+    controllerGrip1.add( controllerModelFactory.createControllerModel( controllerGrip1 ) );
+    controllerGrip2.add( controllerModelFactory.createControllerModel( controllerGrip2 ) );
+    scene.add( controllerGrip1, controllerGrip2 );
+
+    /* -- simple locomotion with thumb-stick ---------------------------------
+       左・右コントローラとも thumb-stick の X / Y を読み取り、
+       立っている向きに対して相対移動します。
+    ------------------------------------------------------------------------ */
+    function addThumbstickWalk( controllerGrip ) {
+      const target = new THREE.Vector3();
+
+      controllerGrip.addEventListener( 'connected', ( evt ) => {
+        if ( evt.data && evt.data.handedness ) {
+          // keep reference to gamepad
+          controllerGrip.gamepad = evt.data.gamepad;
+        }
+      } );
+
+      renderer.setAnimationLoop( () => {
+        if ( controllerGrip.gamepad ) {
+          const [x, y] = controllerGrip.gamepad.axes;
+          const speed  = 0.03;                    // meters per frame
+          if ( Math.abs(x) > 0.05 || Math.abs(y) > 0.05 ) {
+            camera.getWorldDirection( target );
+            target.y = 0;
+            target.normalize();
+            const right = new THREE.Vector3().crossVectors( target, camera.up ).normalize();
+            user.position
+              .addScaledVector( target, -y * speed )
+              .addScaledVector( right, x * speed );
+          }
+        }
+      } );
+    }
+    addThumbstickWalk( controllerGrip1 );
+    addThumbstickWalk( controllerGrip2 );
+
+    /* ===== render loop ===== */
+    renderer.setAnimationLoop( () => {
+      renderer.render( scene, camera );
+    } );
+
+    /* ===== resize ===== */
+    window.addEventListener( 'resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize( window.innerWidth, window.innerHeight );
+    } );
+  </script>
+
+  <style>
+    body { margin: 0; overflow: hidden; font-family: sans-serif; }
+    canvas { display: block; }
+  </style>
+</head>
+<body></body>
+</html>

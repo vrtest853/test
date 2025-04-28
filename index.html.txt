@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>VR街づくりテスト – ライト修正 & 最適化</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <script src="https://cdn.jsdelivr.net/npm/three@0.157.0/build/three.min.js"></script>
+  <style>
+    body{margin:0;overflow:hidden;background:black;}
+    #startVR{
+      position:fixed;top:20px;left:20px;z-index:10;
+      padding:10px 20px;font-size:1.2em;
+      background:#4CAF50;color:#fff;border:none;border-radius:5px;cursor:pointer;
+    }
+  </style>
+</head>
+<body>
+<button id="startVR">VRモード開始</button>
+
+<script>
+/* ── 基本セットアップ ───────────────────────── */
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(window.devicePixelRatio);          // ← 追加
+renderer.setSize(innerWidth,innerHeight);
+renderer.xr.enabled = true;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x222222);
+
+/* プレイヤーリグ */
+const playerRig = new THREE.Group();
+scene.add(playerRig);
+
+const camera = new THREE.PerspectiveCamera(70,innerWidth/innerHeight,0.1,1000);
+camera.position.set(0,1.6,3);
+playerRig.add(camera);
+
+/* ライト  (★ 修正済み) */
+scene.add(new THREE.AmbientLight(0xffffff,0.5));
+const hemi = new THREE.HemisphereLight(0xffffff,0x444444);
+hemi.position.set(0,10,0);
+scene.add(hemi);
+
+/* グリッド & デモ */
+scene.add(new THREE.GridHelper(50,50));
+const cube = new THREE.Mesh(new THREE.BoxGeometry(1,1,1),new THREE.MeshNormalMaterial());
+cube.position.set(0,1.6,-4);scene.add(cube);
+
+/* ── …（以下は前回と同じ：移動・回転・Aジャンプ etc.） ── */
+
+/* 省略せずに貼り付けても OK。 もし手元で動いている他の部分を壊したく
+   なければ、ライト部分の修正だけを取り込んでも問題ありません。 */
+
+/* …（略）… */
+</script>
+</body>
+</html>

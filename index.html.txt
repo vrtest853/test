@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>Universal WebXR / Mobile 3D</title>
+<style>body{margin:0;overflow:hidden;background:#000}</style>
+
+<!-- three.js r176 と addons を CDN から -->
+<script type="importmap">
+{
+  "imports":{
+    "three"         : "https://cdn.jsdelivr.net/npm/three@0.176.0/build/three.module.js",
+    "three/addons/" : "https://cdn.jsdelivr.net/npm/three@0.176.0/examples/jsm/"
+  }
+}
+</script>
+</head><body>
+
+<script type="module">
+import * as THREE from 'three';
+import { VRButton }                   from 'three/addons/webxr/VRButton.js';
+import { XRControllerModelFactory }   from 'three/addons/webxr/XRControllerModelFactory.js';
+import { OrbitControls }              from 'three/addons/controls/OrbitControls.js';
+import { DeviceOrientationControls }  from 'three/addons/controls/DeviceOrientationControls.js';
+
+/* ---------- 基本セットアップ ---------- */
+const scene   = new THREE.Scene();
+const camera  = new THREE.PerspectiveCamera(70, innerWidth/innerHeight, 0.1, 100);
+camera.position.set(0, 1.6, 3);             // どの環境でも前を向く
+
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(devicePixelRatio);
+renderer.setSize(innerWidth, innerHeight);
+renderer.xr.enabled = true;
+document.body.appendChild(renderer.domElement);
+document.body.appendChild(VRButton.createButton(renderer));
+
+/* ---------- 環境 ---------- */
+scene.add(new THREE.AmbientLight(0xffffff, 0.3));
+const dLight = new THREE.DirectionalLight(0xffffff, 1); dLight.position.set(5,10,2); scene.add(dLight);
+scene.add(new THREE.GridHelper(20, 20, 0x444444, 0x222222));
+
+/* ---------- デモ用オブジェクト ---------- */
+const cube = new THREE.Mesh(
+  new THREE.BoxGeometry(0.4,0.4,0.4),
+  new THREE.MeshStandardMaterial({color:0x0077aa})
+);
+cube.position.set(0,1.4,-2); scene.add(cube);
+
+/* ---------- VR コントローラ ---------- */
+const factory = new XRControllerModelFactory();
+const rayGeo = new THREE.BufferGeometry().setFromPoints([ new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,-1) ]);
+const controllers = [];
+
+[0,1].forEach(i=>{
+  const ctrl = renderer.xr.getController(i);
+  ctrl.add(new THREE.Line(rayGeo,new THREE.LineBasicMaterial({color:0xffff00})));
+  ctrl.userData.raycaster = new THREE.Raycaster();
+  ctrl.addEventListener('selectstart',()=>{ const hit=intersect(ctrl); if(hit) hit.material.color.setHex(Math.random()*0xffffff); });
+  scene.add(ctrl);
+
+  const grip = renderer.xr.getControllerGrip(i);
+  grip.add(factory.createControllerModel(grip));
+  scene.add(grip);
+  controllers.push(ctrl);
+});
+
+function intersect(ctrl){
+  const m=new THREE.Matrix4().extractRotation(ctrl.matrixWorld);
+  ctrl.userData.raycaster.ray.origin.setFromMatrixPosition(ctrl.matrixWorld);
+  ctrl.userData.raycaster.ray.direction.set(0,0,-1).applyMatrix4(m);
+  return ctrl.userData.raycaster.intersectObject(cube)[0]?.object ?? null;
+}
+
+/* ---------- PC/モバイル共通の OrbitControls ---------- */
+const orbit = new OrbitControls(camera, renderer.domElement);
+orbit.enableDamping = true;
+orbit.target.set(0,1.4,0);
+
+/* ---------- ジャイロ用 DeviceOrientationControls ---------- */
+let gyro = null;
+function enableGyro(){
+  gyro = new DeviceOrientationControls(camera);
+  orbit.enabled = false;                // ジャイロにバトンタッチ
+}
+
+/* ----- iOS 13+ のセンサー許可処理 ----- */
+if (!navigator.xr){                     // WebXR 非対応端末のみ表示
+  const b = document.createElement('button');
+  b.textContent = 'Enable Motion';
+  Object.assign(b.style,{
+    position:'absolute',top:'50%',left:'50%',transform:'translate(-50%,-50%)',
+    padding:'1rem 2rem',fontSize:'1.1rem',zIndex:10
+  });
+  b.onclick = async ()=>{
+    try{
+      if (typeof DeviceMotionEvent?.requestPermission === 'function'){
+        const r = await DeviceMotionEvent.requestPermission();
+        if(r !== 'granted') throw new Error('denied');
+      }
+      enableGyro();
+      b.remove();
+    }catch{ alert('センサーが許可されませんでした（OrbitControls で操作してください）'); }
+  };
+  document.body.appendChild(b);
+}
+
+/* ---------- レンダーループ ---------- */
+const clock = new THREE.Clock();
+const walkSpeed = 3, snap = THREE.MathUtils.degToRad(30);
+let prevX = 0;
+
+renderer.setAnimationLoop(()=>{
+  const dt = clock.getDelta();
+
+  // VR スティック操作
+  controllers.forEach(c=>{
+    const gp = c?.inputSource?.gamepad; if(!gp) return;
+    const [x,y]=gp.axes;
+    if(Math.abs(y)>0.2){ camera.position.add(new THREE.Vector3(0,0,-y*dt*walkSpeed).applyQuaternion(camera.quaternion)); }
+    if(Math.abs(x)>0.6 && Math.abs(prevX)<=0.6){ camera.rotation.y -= Math.sign(x)*snap; }
+    prevX = x;
+  });
+
+  // フォールバック操作
+  if(gyro)          gyro.update();
+  else              orbit.update();
+
+  renderer.render(scene,camera);
+});
+
+/* ---------- リサイズ ---------- */
+addEventListener('resize',()=>{
+  camera.aspect = innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight);
+});
+</script>
+</body>
+</html>

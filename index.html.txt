@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>VR街づくりテスト – Aボタンでジャンプ追加版</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <script src="https://cdn.jsdelivr.net/npm/three@0.157.0/build/three.min.js"></script>
+  <style>
+    body{margin:0;overflow:hidden;background:black;}
+    #startVR{
+      position:fixed;top:20px;left:20px;z-index:10;
+      padding:10px 20px;font-size:1.2em;
+      background:#4CAF50;color:#fff;border:none;border-radius:5px;
+      cursor:pointer;
+    }
+  </style>
+</head>
+<body>
+<button id="startVR">VRモード開始</button>
+
+<script>
+/* ─── 基本セットアップ ─────────────────────────── */
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(innerWidth,innerHeight);
+renderer.xr.enabled = true;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x222222);
+
+/* プレイヤーリグ */
+const playerRig = new THREE.Group();
+scene.add(playerRig);
+
+const camera = new THREE.PerspectiveCamera(70,innerWidth/innerHeight,0.1,1000);
+camera.position.set(0,1.6,3);
+playerRig.add(camera);
+
+/* ライト */
+scene.add(new THREE.AmbientLight(0xffffff,0.5));
+const hemi=new THREE.HemisphereLight(0xffffff,0x444444);
+hemi.position.set(0,10,0);scene.add(hemi);
+
+/* グリッド & デモ */
+scene.add(new THREE.GridHelper(50,50));
+const cube=new THREE.Mesh(new THREE.BoxGeometry(1,1,1),new THREE.MeshNormalMaterial());
+cube.position.set(0,1.6,-4);scene.add(cube);
+const sphere=new THREE.Mesh(new THREE.SphereGeometry(0.7,32,32),new THREE.MeshBasicMaterial({color:0x00ffff}));
+sphere.position.set(3,2,-5);scene.add(sphere);
+
+/* 小ビル */
+for(let i=-10;i<=10;i+=4){
+  for(let j=-10;j<=10;j+=4){
+    if(i===0&&j===0)continue;
+    const h=Math.random()*5+2;
+    const b=new THREE.Mesh(new THREE.BoxGeometry(1,h,1),new THREE.MeshStandardMaterial({color:0x888888}));
+    b.position.set(i,h/2,j-10);scene.add(b);
+  }
+}
+
+/* ─── 操作 & 物理用パラメータ ───────────────────── */
+const tmpFwd=new THREE.Vector3();
+const tmpSide=new THREE.Vector3();
+const MOVE_SPEED=0.05;
+const ROT_SPEED =0.03;
+
+/* ★ ジャンプ関連 */
+const JUMP_SPEED = 0.19;   // 上向き初速度
+const GRAVITY    = 0.0098; // 毎フレーム減速量
+playerRig.userData.yVel    = 0;
+playerRig.userData.canJump = true;
+
+/* ─── アニメーションループ ─────────────────────── */
+renderer.setAnimationLoop((t,frame)=>{
+  cube.rotation.x+=0.01;
+  cube.rotation.y+=0.01;
+  sphere.rotation.y+=0.02;
+
+  const session=renderer.xr.getSession();
+  if(session&&frame){
+    for(const src of session.inputSources){
+      if(!src.gamepad)continue;
+      const g=src.gamepad;
+      const xi=g.axes.length>=4?2:0;
+      const yi=xi+1;
+      const x=g.axes[xi];
+      const y=g.axes[yi];
+
+      /* ボタン履歴初期化 */
+      if(!src.userData.prevButtons){
+        src.userData.prevButtons=g.buttons.map(b=>b.pressed);
+      }
+
+      /* 左スティック：移動 */
+      if(src.handedness==='left' && Math.hypot(x,y)>0.1){
+        camera.getWorldDirection(tmpFwd);tmpFwd.y=0;tmpFwd.normalize();
+        tmpSide.crossVectors(camera.up,tmpFwd).normalize();   // 右方向
+        playerRig.position
+                 .addScaledVector(tmpFwd,-y*MOVE_SPEED)       // 前後
+                 .addScaledVector(tmpSide,-x*MOVE_SPEED);     // 左右（反転済）
+      }
+
+      /* 右コントローラ：回転 & ジャンプ */
+      if(src.handedness==='right'){
+        /* スムーズ回転 */
+        if(Math.abs(x)>0.15){
+          playerRig.rotation.y -= x*ROT_SPEED;
+        }
+
+        /* ★ Aボタン検知（index 3 または 4） */
+        const aNow   = g.buttons[3]?.pressed || false;
+        const altANow= g.buttons[4]?.pressed || false;
+        const aPrev  = src.userData.prevButtons[3] || false;
+        const altAPrev=src.userData.prevButtons[4] || false;
+
+        if((aNow && !aPrev || altANow && !altAPrev) && playerRig.userData.canJump){
+          playerRig.userData.yVel = JUMP_SPEED;
+          playerRig.userData.canJump = false;
+        }
+      }
+
+      /* ボタン状態更新 */
+      src.userData.prevButtons=g.buttons.map(b=>b.pressed);
+    }
+  }
+
+  /* ★ ジャンプ垂直処理 */
+  if(!playerRig.userData.canJump){
+    playerRig.position.y += playerRig.userData.yVel;
+    playerRig.userData.yVel -= GRAVITY;
+    if(playerRig.position.y <= 0){
+      playerRig.position.y = 0;
+      playerRig.userData.yVel = 0;
+      playerRig.userData.canJump = true;
+    }
+  }
+
+  renderer.render(scene,camera);
+});
+
+/* ─── VR セッション開始 ───────────────────────── */
+document.getElementById('startVR').addEventListener('click',async()=>{
+  if(!navigator.xr){alert('WebXR 未対応');return;}
+  try{
+    const s=await navigator.xr.requestSession('immersive-vr',{requiredFeatures:['local-floor']});
+    renderer.xr.setReferenceSpaceType('local-floor');
+    renderer.xr.setSession(s);
+  }catch(e){alert('VR 開始失敗: '+e.message);}
+});
+
+/* リサイズ */
+addEventListener('resize',()=>{
+  camera.aspect=innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight);
+});
+</script>
+</body>
+</html>

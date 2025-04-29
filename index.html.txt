@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>VR森づくり 軽量木モデル版</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body { margin:0; overflow:hidden; background:#000; }
+    #startVR {
+      position:fixed; top:20px; left:20px; z-index:10;
+      padding:10px 20px; font-size:1.2em;
+      background:#4CAF50; color:#fff; border:none; border-radius:5px;
+      cursor:pointer;
+    }
+  </style>
+</head>
+<body>
+<button id="startVR">VRモード開始</button>
+
+<!-- three.js + GLTFLoader -->
+<script src="https://cdn.jsdelivr.net/npm/three@0.157.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.157.0/examples/js/loaders/GLTFLoader.js"></script>
+
+<script>
+/* --- Three.js基本セットアップ --- */
+const renderer = new THREE.WebGLRenderer({ antialias:true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setSize(innerWidth, innerHeight);
+renderer.xr.enabled = true;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+
+/* --- スカイボックス --- */
+const loader = new THREE.CubeTextureLoader();
+loader.setPath('https://cdn.jsdelivr.net/gh/mrdoob/three.js@r157/examples/textures/cube/skyboxsun25deg/');
+scene.background = loader.load(
+  ['px.jpg','nx.jpg','py.jpg','ny.jpg','pz.jpg','nz.jpg'],
+  tex => { tex.colorSpace = THREE.SRGBColorSpace; }
+);
+
+/* --- ライト --- */
+scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.0));
+const sun = new THREE.DirectionalLight(0xffffff, 0.8);
+sun.position.set(100, 200, 100);
+scene.add(sun);
+
+/* --- プレイヤーリグ & カメラ --- */
+const rig = new THREE.Group(); scene.add(rig);
+const camera = new THREE.PerspectiveCamera(70, innerWidth/innerHeight, 0.1, 1000);
+camera.position.set(0, 1.6, 3);
+rig.add(camera);
+
+/* --- 草地（あなたの草テクスチャ）--- */
+const texLoader = new THREE.TextureLoader();
+texLoader.load(
+  'https://raw.githubusercontent.com/vrtest853/test/main/A_digital_photograph_presents_a_close-up_view_of_a.png',
+  tex => {
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(50, 50);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(1000, 1000),
+      new THREE.MeshStandardMaterial({ map: tex })
+    );
+    ground.rotation.x = -Math.PI/2;
+    scene.add(ground);
+  },
+  undefined,
+  err => {
+    console.warn('草テクスチャロード失敗:', err);
+  }
+);
+
+/* --- 軽量木モデルをロードして10本配置 --- */
+const gltfLoader = new THREE.GLTFLoader();
+gltfLoader.load(
+  'https://cdn.jsdelivr.net/gh/KhronosGroup/glTF-Sample-Models/2.0/Tree/glTF-Binary/Tree.glb',
+  glb => {
+    for (let i = 0; i < 10; i++) {
+      const tree = glb.scene.clone(true);
+      const scale = 1.0 + Math.random() * 0.5;
+      tree.scale.setScalar(scale);
+      tree.position.set(
+        (Math.random() * 2 - 1) * 20,
+        0,
+        -10 - Math.random() * 30
+      );
+      tree.rotation.y = Math.random() * Math.PI * 2;
+      scene.add(tree);
+    }
+  },
+  undefined,
+  err => {
+    console.warn('木モデルロード失敗:', err);
+  }
+);
+
+/* --- 回転キューブ --- */
+const cube = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), new THREE.MeshNormalMaterial());
+cube.position.set(0,1.6,-4);
+scene.add(cube);
+
+/* --- 移動・ジャンプ設定 --- */
+const tmpF = new THREE.Vector3(), tmpR = new THREE.Vector3();
+const MOVE = 0.05, ROT = 0.03, JUMP = 0.18, GRAV = 0.0098;
+rig.userData.yv = 0; rig.userData.grounded = true;
+
+renderer.setAnimationLoop((_, frame) => {
+  cube.rotation.x += 0.01;
+  cube.rotation.y += 0.01;
+
+  const ses = renderer.xr.getSession();
+  if (ses && frame) {
+    for (const src of ses.inputSources) {
+      if (!src.gamepad) continue;
+      const g = src.gamepad;
+      const xi = g.axes.length>=4 ? 2:0, yi = xi+1;
+      const x = g.axes[xi], y = g.axes[yi];
+
+      if (src.handedness === 'left' && Math.hypot(x,y) > 0.1) {
+        camera.getWorldDirection(tmpF); tmpF.y=0; tmpF.normalize();
+        tmpR.crossVectors(camera.up,tmpF).normalize();
+        rig.position
+          .addScaledVector(tmpF, -y*MOVE)
+          .addScaledVector(tmpR, -x*MOVE);
+      }
+      if (src.handedness === 'right') {
+        if (Math.abs(x) > 0.15) rig.rotation.y -= x*ROT;
+        if (g.buttons[0]?.pressed && rig.userData.grounded) {
+          rig.userData.yv = JUMP;
+          rig.userData.grounded = false;
+        }
+      }
+    }
+  }
+
+  if (!rig.userData.grounded) {
+    rig.position.y += rig.userData.yv;
+    rig.userData.yv -= GRAV;
+    if (rig.position.y <= 0) {
+      rig.position.y = 0;
+      rig.userData.yv = 0;
+      rig.userData.grounded = true;
+    }
+  }
+
+  renderer.render(scene, camera);
+});
+
+/* --- VRモード開始 --- */
+document.getElementById('startVR').addEventListener('click', async () => {
+  if (!navigator.xr) { alert('WebXR非対応'); return; }
+  try {
+    const s = await navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor'] });
+    const ref = await s.requestReferenceSpace('local-floor').catch(() => s.requestReferenceSpace('local'));
+    renderer.xr.setReferenceSpace(ref);
+    renderer.xr.setSession(s);
+  } catch (e) { alert('VR開始失敗: ' + e.message); }
+});
+
+/* --- リサイズ対応 --- */
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+</script>
+</body>
+</html>

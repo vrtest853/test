@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>VRテスト – 草地CORS安定版</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body { margin:0; overflow:hidden; background:#000; }
+    #startVR {
+      position:fixed; top:20px; left:20px; z-index:10;
+      padding:10px 20px; font-size:1.2em;
+      background:#4CAF50; color:#fff; border:none; border-radius:5px;
+      cursor:pointer;
+    }
+  </style>
+</head>
+<body>
+<button id="startVR">VRモード開始</button>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.157.0/build/three.min.js"></script>
+
+<script>
+/* --- Three.js基本セットアップ --- */
+const renderer = new THREE.WebGLRenderer({ antialias:true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setSize(innerWidth, innerHeight);
+renderer.xr.enabled = true;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+
+/* --- スカイボックス（青空） --- */
+const loader = new THREE.CubeTextureLoader();
+loader.setPath('https://cdn.jsdelivr.net/gh/mrdoob/three.js@r157/examples/textures/cube/skyboxsun25deg/');
+const skybox = loader.load(
+  ['px.jpg','nx.jpg','py.jpg','ny.jpg','pz.jpg','nz.jpg'],
+  tex => { tex.colorSpace = THREE.SRGBColorSpace; }
+);
+scene.background = skybox;
+
+/* --- ライト --- */
+scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.0));
+const sun = new THREE.DirectionalLight(0xffffff, 0.8);
+sun.position.set(100, 200, 100);
+scene.add(sun);
+
+/* --- プレイヤーリグ & カメラ --- */
+const rig = new THREE.Group(); scene.add(rig);
+const camera = new THREE.PerspectiveCamera(70, innerWidth/innerHeight, 0.1, 1000);
+camera.position.set(0, 1.6, 3);
+rig.add(camera);
+
+/* --- 回転するキューブ --- */
+const cube = new THREE.Mesh(
+  new THREE.BoxGeometry(1, 1, 1),
+  new THREE.MeshNormalMaterial()
+);
+cube.position.set(0, 1.6, -4);
+scene.add(cube);
+
+/* --- ★草地を CORS フリー画像で確実に作成 --- */
+const texLoader = new THREE.TextureLoader();
+texLoader.setCrossOrigin('anonymous'); // Quest対策でCORS設定
+texLoader.load(
+  'https://cdn.jsdelivr.net/gh/lo-th/lo-th.github.io@master/towebp/terrain/grass.jpg',
+  tex => {
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(50, 50);
+    tex.colorSpace = THREE.SRGBColorSpace;
+
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(1000, 1000),
+      new THREE.MeshStandardMaterial({ map: tex })
+    );
+    ground.rotation.x = -Math.PI/2;
+    scene.add(ground);
+  },
+  undefined,
+  err => {
+    console.error('草テクスチャロード失敗:', err);
+    const fallback = new THREE.Mesh(
+      new THREE.PlaneGeometry(1000, 1000),
+      new THREE.MeshStandardMaterial({ color:0x228833 })
+    );
+    fallback.rotation.x = -Math.PI/2;
+    scene.add(fallback);
+  }
+);
+
+/* --- 移動＆ジャンプ設定 --- */
+const tmpF = new THREE.Vector3(), tmpR = new THREE.Vector3();
+const MOVE=0.05, ROT=0.03, JUMP=0.18, GRAV=0.0098;
+rig.userData.yv = 0; rig.userData.grounded = true;
+
+/* --- アニメーションループ --- */
+renderer.setAnimationLoop((_,frame)=>{
+  cube.rotation.x += 0.01;
+  cube.rotation.y += 0.01;
+
+  const ses = renderer.xr.getSession();
+  if(ses && frame){
+    for(const src of ses.inputSources){
+      if(!src.gamepad) continue;
+      const g=src.gamepad;
+      const xi=g.axes.length>=4?2:0, yi=xi+1;
+      const x=g.axes[xi], y=g.axes[yi];
+
+      if(src.handedness==='left' && Math.hypot(x,y)>0.1){
+        camera.getWorldDirection(tmpF); tmpF.y=0; tmpF.normalize();
+        tmpR.crossVectors(camera.up,tmpF).normalize();
+        rig.position
+           .addScaledVector(tmpF, -y*MOVE)
+           .addScaledVector(tmpR, -x*MOVE);
+      }
+      if(src.handedness==='right'){
+        if(Math.abs(x)>0.15) rig.rotation.y -= x*ROT;
+        if(g.buttons[0]?.pressed && rig.userData.grounded){
+          rig.userData.yv = JUMP;
+          rig.userData.grounded = false;
+        }
+      }
+    }
+  }
+
+  if(!rig.userData.grounded){
+    rig.position.y += rig.userData.yv;
+    rig.userData.yv -= GRAV;
+    if(rig.position.y<=0){
+      rig.position.y=0; rig.userData.yv=0; rig.userData.grounded=true;
+    }
+  }
+
+  renderer.render(scene, camera);
+});
+
+/* --- VRモード開始 --- */
+document.getElementById('startVR').addEventListener('click', async () => {
+  if (!navigator.xr) { alert('WebXR非対応'); return; }
+  try {
+    const s = await navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor'] });
+    const ref = await s.requestReferenceSpace('local-floor').catch(() => s.requestReferenceSpace('local'));
+    renderer.xr.setReferenceSpace(ref);
+    renderer.xr.setSession(s);
+  } catch (e) { alert('VR開始失敗:' + e.message); }
+});
+
+/* --- リサイズ対応 --- */
+addEventListener('resize',()=>{
+  camera.aspect = innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight);
+});
+</script>
+</body>
+</html>

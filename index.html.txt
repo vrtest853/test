@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <title>VR街づくりテスト – CORS 対応スカイボックス</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+  <style>
+    body{margin:0;overflow:hidden;background:#000;}
+    #startVR{
+      position:fixed;top:20px;left:20px;z-index:10;
+      padding:10px 20px;font-size:1.2em;
+      background:#4CAF50;color:#fff;border:none;border-radius:5px;cursor:pointer;
+    }
+  </style>
+</head>
+<body>
+<button id="startVR">VRモード開始</button>
+
+<!-- three.js と GLTFLoader をグローバル版で -->
+<script src="https://cdn.jsdelivr.net/npm/three@0.157.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.157.0/examples/js/loaders/GLTFLoader.js"></script>
+
+<script>
+/* ─── Renderer / Scene / Camera ───────────────────────── */
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setSize(innerWidth,innerHeight);
+renderer.xr.enabled = true;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+
+/* ─── CORS OK なスカイボックス画像を読み込む ──────── */
+const cubeLoader = new THREE.CubeTextureLoader()
+  .setCrossOrigin('anonymous')                                             // ★ 追加
+  .setPath('https://cdn.jsdelivr.net/gh/mrdoob/three.js@r157/examples/textures/cube/skyboxsun25deg/'); // CORS ヘッダー付き
+
+const skyTex = cubeLoader.load(['px.jpg','nx.jpg','py.jpg','ny.jpg','pz.jpg','nz.jpg']);
+skyTex.colorSpace = THREE.SRGBColorSpace;
+scene.background = skyTex;
+
+/* ─── ライト ──────────────────────────────────── */
+scene.add(new THREE.HemisphereLight(0xffffff,0x444444,0.8));
+const sun = new THREE.DirectionalLight(0xffffff,1.0);
+sun.position.set(100,200,100);
+scene.add(sun);
+
+/* ─── 地面 ───────────────────────────────────── */
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(1000,1000),
+  new THREE.MeshStandardMaterial({color:0x228833})
+);
+ground.rotation.x = -Math.PI/2;
+scene.add(ground);
+
+/* ─── カメラリグ & デモキューブ ──────────────── */
+const playerRig = new THREE.Group(); scene.add(playerRig);
+
+const camera = new THREE.PerspectiveCamera(70,innerWidth/innerHeight,0.1,1000);
+camera.position.set(0,1.6,3);
+playerRig.add(camera);
+
+const cube = new THREE.Mesh(new THREE.BoxGeometry(1,1,1),new THREE.MeshNormalMaterial());
+cube.position.set(0,1.6,-4); scene.add(cube);
+
+/* ─── 木モデルを読み込み (GLTFLoader CORS=anonymous) ─ */
+const loader = new THREE.GLTFLoader().setCrossOrigin('anonymous');
+loader.load(
+  'https://threejs.org/examples/models/gltf/Tree.glb',
+  glb=>{
+    for(let i=0;i<8;i++){
+      const t = glb.scene.clone(true);
+      t.scale.setScalar(0.7+Math.random()*0.6);
+      t.position.set((Math.random()*2-1)*18,0,-8-Math.random()*25);
+      scene.add(t);
+    }
+  },
+  undefined,
+  e=>console.error('Tree load error',e)
+);
+
+/* ─── 入力 & ジャンプ ─────────────────────────── */
+const tmpFwd=new THREE.Vector3(), tmpSide=new THREE.Vector3();
+const MOVE=0.05, ROT=0.03, JUMP=0.18, GRAV=0.0098;
+playerRig.userData.yVel=0;
+playerRig.userData.canJump=true;
+
+/* ─── アニメーションループ ───────────────────── */
+renderer.setAnimationLoop((_,frame)=>{
+  cube.rotation.x+=0.01; cube.rotation.y+=0.01;
+
+  const session = renderer.xr.getSession();
+  if(session && frame){
+    for(const src of session.inputSources){
+      if(!src.gamepad) continue;
+      const g=src.gamepad, xi=g.axes.length>=4?2:0, yi=xi+1;
+      const x=g.axes[xi], y=g.axes[yi];
+
+      if(src.handedness==='left' && Math.hypot(x,y)>0.1){
+        camera.getWorldDirection(tmpFwd); tmpFwd.y=0; tmpFwd.normalize();
+        tmpSide.crossVectors(camera.up,tmpFwd).normalize();
+        playerRig.position
+                 .addScaledVector(tmpFwd,-y*MOVE)
+                 .addScaledVector(tmpSide,-x*MOVE);
+      }
+      if(src.handedness==='right'){
+        if(Math.abs(x)>0.15) playerRig.rotation.y -= x*ROT;
+        if(g.buttons[0]?.pressed && playerRig.userData.canJump){
+          playerRig.userData.yVel = JUMP;
+          playerRig.userData.canJump = false;
+        }
+      }
+    }
+  }
+
+  if(!playerRig.userData.canJump){
+    playerRig.position.y += playerRig.userData.yVel;
+    playerRig.userData.yVel -= GRAV;
+    if(playerRig.position.y<=0){
+      playerRig.position.y=0; playerRig.userData.yVel=0; playerRig.userData.canJump=true;
+    }
+  }
+
+  renderer.render(scene,camera);
+});
+
+/* ─── VR 開始 ─────────────────────────────────── */
+document.getElementById('startVR').addEventListener('click',async()=>{
+  if(!navigator.xr){alert('WebXR 非対応');return;}
+  try{
+    const s=await navigator.xr.requestSession('immersive-vr',{optionalFeatures:['local-floor']});
+    const ref=await s.requestReferenceSpace('local-floor').catch(()=>s.requestReferenceSpace('local'));
+    renderer.xr.setReferenceSpace(ref);
+    renderer.xr.setSession(s);
+  }catch(e){alert('VR 開始失敗:'+e.message);}
+});
+
+/* ─── リサイズ対応 ───────────────────────────── */
+addEventListener('resize',()=>{
+  camera.aspect=innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight);
+});
+</script>
+</body>
+</html>

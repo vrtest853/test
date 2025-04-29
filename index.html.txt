@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>CesiumJS スカイツリーVRプロジェクト</title>
+  <script src="https://cesium.com/downloads/cesiumjs/releases/1.114/Build/Cesium/Cesium.js"></script>
+  <link href="https://cesium.com/downloads/cesiumjs/releases/1.114/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+  <style>
+    html, body, #cesiumContainer {
+      width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;
+    }
+  </style>
+</head>
+<body>
+<div id="cesiumContainer"></div>
+
+<script>
+/* --- Cesium初期設定 --- */
+const viewer = new Cesium.Viewer('cesiumContainer', {
+  terrainProvider: Cesium.createWorldTerrain(),
+  shouldAnimate: true
+});
+
+/* --- 東京スカイツリー付近にカメラジャンプ --- */
+viewer.camera.flyTo({
+  destination : Cesium.Cartesian3.fromDegrees(139.8107, 35.7101, 500), // 経度, 緯度, 高さ(m)
+  orientation : {
+    heading : Cesium.Math.toRadians(0.0),   // 方位角（北向き）
+    pitch : Cesium.Math.toRadians(-30.0),   // 下向き
+    roll : 0.0
+  }
+});
+</script>
+</body>
+</html>

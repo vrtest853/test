@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>押上・スカイツリー都市ベース（リアル版）</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body { margin:0; overflow:hidden; background:#000; }
+    #startVR {
+      position:fixed; top:20px; left:20px; z-index:10;
+      padding:10px 20px; font-size:1.2em;
+      background:#4CAF50; color:#fff; border:none; border-radius:5px;
+      cursor:pointer;
+    }
+  </style>
+</head>
+<body>
+<button id="startVR">VRモード開始</button>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.157.0/build/three.min.js"></script>
+
+<script>
+/* --- 基本セットアップ --- */
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.xr.enabled = true;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x02030a); // 夜空風
+
+/* --- ライト --- */
+scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.0));
+const sun = new THREE.DirectionalLight(0xffffff, 1.0);
+sun.position.set(100, 200, 100);
+scene.add(sun);
+
+/* --- カメラリグ --- */
+const rig = new THREE.Group(); scene.add(rig);
+const camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.1, 1000);
+camera.position.set(0, 1.6, 30);
+rig.add(camera);
+
+/* --- 地面（ベース） --- */
+const baseGround = new THREE.Mesh(
+  new THREE.PlaneGeometry(2000, 2000),
+  new THREE.MeshStandardMaterial({ color: 0x333333 })
+);
+baseGround.rotation.x = -Math.PI/2;
+scene.add(baseGround);
+
+/* --- 隅田川（川エリア） --- */
+const river = new THREE.Mesh(
+  new THREE.PlaneGeometry(300, 50),
+  new THREE.MeshStandardMaterial({ color: 0x2233aa, transparent: true, opacity: 0.8 })
+);
+river.rotation.x = -Math.PI/2;
+river.position.set(-400, 0.01, 0);
+scene.add(river);
+
+/* --- メイン道路（大通り） --- */
+const mainRoad = new THREE.Mesh(
+  new THREE.PlaneGeometry(20, 800),
+  new THREE.MeshStandardMaterial({ color: 0x111111 })
+);
+mainRoad.rotation.x = -Math.PI/2;
+mainRoad.position.set(0, 0.02, 0);
+scene.add(mainRoad);
+
+/* --- 横断道路（交差） --- */
+for (let i = -5; i <= 5; i++) {
+  const crossRoad = new THREE.Mesh(
+    new THREE.PlaneGeometry(400, 10),
+    new THREE.MeshStandardMaterial({ color: 0x111111 })
+  );
+  crossRoad.rotation.x = -Math.PI/2;
+  crossRoad.position.set(0, 0.02, i * 80);
+  scene.add(crossRoad);
+}
+
+/* --- 歩道（白っぽく） --- */
+for (let i = -5; i <= 5; i++) {
+  const sidewalk = new THREE.Mesh(
+    new THREE.PlaneGeometry(30, 10),
+    new THREE.MeshStandardMaterial({ color: 0xbbbbbb })
+  );
+  sidewalk.rotation.x = -Math.PI/2;
+  sidewalk.position.set(15, 0.03, i * 80);
+  scene.add(sidewalk);
+
+  const sidewalk2 = sidewalk.clone();
+  sidewalk2.position.x = -15;
+  scene.add(sidewalk2);
+}
+
+/* --- 公園エリア --- */
+const park = new THREE.Mesh(
+  new THREE.PlaneGeometry(100, 100),
+  new THREE.MeshStandardMaterial({ color: 0x228833 })
+);
+park.rotation.x = -Math.PI/2;
+park.position.set(100, 0.01, 100);
+scene.add(park);
+
+/* --- VR移動＆ジャンプ設定 --- */
+const tmpF = new THREE.Vector3(), tmpR = new THREE.Vector3();
+const MOVE = 0.05, ROT = 0.03, JUMP = 0.18, GRAV = 0.0098;
+rig.userData.yv = 0; rig.userData.grounded = true;
+
+renderer.setAnimationLoop((_, frame) => {
+  const ses = renderer.xr.getSession();
+  if (ses && frame) {
+    for (const src of ses.inputSources) {
+      if (!src.gamepad) continue;
+      const g = src.gamepad;
+      const xi = g.axes.length >= 4 ? 2 : 0, yi = xi+1;
+      const x = g.axes[xi], y = g.axes[yi];
+
+      if (src.handedness === 'left' && Math.hypot(x, y) > 0.1) {
+        camera.getWorldDirection(tmpF); tmpF.y=0; tmpF.normalize();
+        tmpR.crossVectors(camera.up, tmpF).normalize();
+        rig.position
+          .addScaledVector(tmpF, -y * MOVE)
+          .addScaledVector(tmpR, -x * MOVE);
+      }
+      if (src.handedness === 'right') {
+        if (Math.abs(x) > 0.15) rig.rotation.y -= x * ROT;
+        if (g.buttons[0]?.pressed && rig.userData.grounded) {
+          rig.userData.yv = JUMP;
+          rig.userData.grounded = false;
+        }
+      }
+    }
+  }
+
+  if (!rig.userData.grounded) {
+    rig.position.y += rig.userData.yv;
+    rig.userData.yv -= GRAV;
+    if (rig.position.y <= 0) {
+      rig.position.y = 0;
+      rig.userData.yv = 0;
+      rig.userData.grounded = true;
+    }
+  }
+
+  renderer.render(scene, camera);
+});
+
+/* --- VRモード開始 --- */
+document.getElementById('startVR').addEventListener('click', async () => {
+  if (!navigator.xr) { alert('WebXR非対応'); return; }
+  try {
+    const session = await navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor'] });
+    const ref = await session.requestReferenceSpace('local-floor').catch(() => session.requestReferenceSpace('local'));
+    renderer.xr.setReferenceSpace(ref);
+    renderer.xr.setSession(session);
+  } catch (e) { alert('VR開始失敗: ' + e.message); }
+});
+
+/* --- リサイズ対応 --- */
+addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+</body>
+</html>
